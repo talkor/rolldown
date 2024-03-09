@@ -114,7 +114,7 @@ pub struct InputOptions {
 }
 
 impl InputOptions {
-  pub(crate) fn to_rolldown_options(
+  pub(crate) fn into_rolldown_options(
     self,
   ) -> napi::Result<(rolldown::InputOptions, Vec<rolldown_plugin::BoxPlugin>)> {
     let cwd = Path::new(&self.cwd);
@@ -129,10 +129,7 @@ impl InputOptions {
           cb.call_async((source, importer, is_resolved))
             .await
             .map(|v| match v {
-              Either::A(v) => {
-                println!("v: {:?}", v);
-                v
-              }
+              Either::A(v) => v,
               Either::B(_) => false,
             })
             .map_err(BuildError::from)
