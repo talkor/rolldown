@@ -5,7 +5,11 @@ use std::{
 };
 
 use derivative::Derivative;
-use napi::{threadsafe_function::ThreadsafeFunction, Env, Error, Status};
+use napi::{
+  bindgen_prelude::Either,
+  threadsafe_function::{ErrorStrategy, ThreadsafeFunction, UnknownReturnValue},
+  Error, Status,
+};
 use napi_derive::napi;
 use rolldown_error::BuildError;
 use serde::Deserialize;
@@ -76,7 +80,13 @@ pub struct InputOptions {
   #[napi(
     ts_type = "undefined | ((source: string, importer: string | undefined, isResolved: boolean) => boolean)"
   )]
-  pub external: Option<ThreadsafeFunction<(String, Option<String>, bool), bool>>,
+  pub external: Option<
+    ThreadsafeFunction<
+      (String, Option<String>, bool),
+      Either<bool, UnknownReturnValue>,
+      ErrorStrategy::Fatal,
+    >,
+  >,
   pub input: Vec<InputItem>,
   // makeAbsoluteExternalsRelative?: boolean | 'ifRelativeSource';
   // /** @deprecated Use the "manualChunks" output option instead. */
@@ -105,24 +115,27 @@ pub struct InputOptions {
 
 impl InputOptions {
   pub(crate) fn to_rolldown_options(
-    mut self,
-    env: Env,
+    self,
   ) -> napi::Result<(rolldown::InputOptions, Vec<rolldown_plugin::BoxPlugin>)> {
     let cwd = Path::new(&self.cwd);
     if cwd == PathBuf::from("/") {
       return Err(Error::new(Status::InvalidArg, "cwd cannot be root directory"));
     }
 
-    if let Some(external) = self.external.as_mut() {
-      external.unref(&env)?;
-    }
-
     let external = if let Some(external_fn) = self.external {
-      let cb = Box::new(external_fn);
       rolldown::External::Fn(Box::new(move |source, importer, is_resolved| {
-        let ts_fn = Box::clone(&cb);
+        let cb = external_fn.clone();
         Box::pin(async move {
-          ts_fn.call_async(Ok((source, importer, is_resolved))).await.map_err(BuildError::from)
+          cb.call_async((source, importer, is_resolved))
+            .await
+            .map(|v| match v {
+              Either::A(v) => {
+                println!("v: {:?}", v);
+                v
+              }
+              Either::B(_) => false,
+            })
+            .map_err(BuildError::from)
         })
       }))
     } else {

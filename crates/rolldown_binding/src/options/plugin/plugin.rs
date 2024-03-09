@@ -4,7 +4,7 @@ use derivative::Derivative;
 use futures::TryFutureExt;
 use napi::{
   bindgen_prelude::{Either, Either3, Promise},
-  threadsafe_function::{ThreadsafeFunction, UnknownReturnValue},
+  threadsafe_function::{ErrorStrategy, ThreadsafeFunction, UnknownReturnValue},
   Error, Status,
 };
 use rolldown_plugin::Plugin;
@@ -25,7 +25,8 @@ pub struct PluginOptions {
   #[derivative(Debug = "ignore")]
   #[serde(skip_deserializing)]
   #[napi(ts_type = "() => Promise<void>")]
-  pub build_start: Option<ThreadsafeFunction<(), Either<Promise<()>, UnknownReturnValue>>>,
+  pub build_start:
+    Option<ThreadsafeFunction<(), Either<Promise<()>, UnknownReturnValue>, ErrorStrategy::Fatal>>,
 
   #[derivative(Debug = "ignore")]
   #[serde(skip_deserializing)]
@@ -36,6 +37,7 @@ pub struct PluginOptions {
     ThreadsafeFunction<
       (String, Option<String>, Option<HookResolveIdArgsOptions>),
       Either3<Promise<Option<ResolveIdResult>>, Option<ResolveIdResult>, UnknownReturnValue>,
+      ErrorStrategy::Fatal,
     >,
   >,
 
@@ -46,6 +48,7 @@ pub struct PluginOptions {
     ThreadsafeFunction<
       String,
       Either3<Promise<Option<SourceResult>>, Option<SourceResult>, UnknownReturnValue>,
+      ErrorStrategy::Fatal,
     >,
   >,
 
@@ -56,14 +59,20 @@ pub struct PluginOptions {
     ThreadsafeFunction<
       (String, String),
       Either3<Promise<Option<SourceResult>>, Option<SourceResult>, UnknownReturnValue>,
+      ErrorStrategy::Fatal,
     >,
   >,
 
   #[derivative(Debug = "ignore")]
   #[serde(skip_deserializing)]
   #[napi(ts_type = "(error?: string) => Promise<void>")]
-  pub build_end:
-    Option<ThreadsafeFunction<Option<String>, Either<Promise<()>, UnknownReturnValue>>>,
+  pub build_end: Option<
+    ThreadsafeFunction<
+      Option<String>,
+      Either<Promise<()>, UnknownReturnValue>,
+      ErrorStrategy::Fatal,
+    >,
+  >,
 
   #[derivative(Debug = "ignore")]
   #[serde(skip_deserializing)]
@@ -78,20 +87,31 @@ pub struct PluginOptions {
         Option<HookRenderChunkOutput>,
         UnknownReturnValue,
       >,
+      ErrorStrategy::Fatal,
     >,
   >,
 
   #[derivative(Debug = "ignore")]
   #[serde(skip_deserializing)]
   #[napi(ts_type = "(bundle: Outputs, isWrite: boolean) => Promise<void>")]
-  pub generate_bundle:
-    Option<ThreadsafeFunction<(BindingOutputs, bool), Either<Promise<()>, UnknownReturnValue>>>,
+  pub generate_bundle: Option<
+    ThreadsafeFunction<
+      (BindingOutputs, bool),
+      Either<Promise<()>, UnknownReturnValue>,
+      ErrorStrategy::Fatal,
+    >,
+  >,
 
   #[derivative(Debug = "ignore")]
   #[serde(skip_deserializing)]
   #[napi(ts_type = "(bundle: Outputs) => Promise<void>")]
-  pub write_bundle:
-    Option<ThreadsafeFunction<BindingOutputs, Either<Promise<()>, UnknownReturnValue>>>,
+  pub write_bundle: Option<
+    ThreadsafeFunction<
+      BindingOutputs,
+      Either<Promise<()>, UnknownReturnValue>,
+      ErrorStrategy::Fatal,
+    >,
+  >,
 }
 
 #[napi_derive::napi(object)]
@@ -227,7 +247,7 @@ impl Plugin for PluginOptions {
     _ctx: &mut rolldown_plugin::PluginContext,
   ) -> rolldown_plugin::HookNoopReturn {
     if let Some(cb) = &self.build_start {
-      cb.call_async(Ok(()))
+      cb.call_async(())
         .and_then(|start| async {
           match start {
             Either::A(p) => {
@@ -250,11 +270,11 @@ impl Plugin for PluginOptions {
   ) -> rolldown_plugin::HookResolveIdReturn {
     if let Some(cb) = &self.resolve_id {
       let res = cb
-        .call_async(Ok((
+        .call_async((
           args.source.to_string(),
           args.importer.map(|s| s.to_string()),
           Some(args.options.clone().into()),
-        )))
+        ))
         .and_then(|cb| async {
           match cb {
             Either3::A(p) => {
@@ -283,7 +303,7 @@ impl Plugin for PluginOptions {
   ) -> rolldown_plugin::HookLoadReturn {
     if let Some(cb) = &self.load {
       let res = cb
-        .call_async(Ok(args.id.to_string()))
+        .call_async(args.id.to_string())
         .and_then(|loaded| async {
           match loaded {
             Either3::A(p) => {
@@ -311,7 +331,7 @@ impl Plugin for PluginOptions {
   ) -> rolldown_plugin::HookTransformReturn {
     if let Some(cb) = &self.transform {
       let res = cb
-        .call_async(Ok((args.code.to_string(), args.id.to_string())))
+        .call_async((args.code.to_string(), args.id.to_string()))
         .and_then(|transformed| async {
           match transformed {
             Either3::A(p) => {
@@ -338,7 +358,7 @@ impl Plugin for PluginOptions {
     args: Option<&rolldown_plugin::HookBuildEndArgs>,
   ) -> rolldown_plugin::HookNoopReturn {
     if let Some(cb) = &self.build_end {
-      cb.call_async(Ok(args.map(|a| a.error.to_string())))
+      cb.call_async(args.map(|a| a.error.to_string()))
         .and_then(|build_end| async {
           match build_end {
             Either::A(p) => {
@@ -361,7 +381,7 @@ impl Plugin for PluginOptions {
   ) -> rolldown_plugin::HookRenderChunkReturn {
     if let Some(cb) = &self.render_chunk {
       let res = cb
-        .call_async(Ok((args.code.to_string(), args.chunk.clone().into())))
+        .call_async((args.code.to_string(), args.chunk.clone().into()))
         .and_then(|rendered| async {
           match rendered {
             Either3::A(p) => {
@@ -388,7 +408,7 @@ impl Plugin for PluginOptions {
     is_write: bool,
   ) -> rolldown_plugin::HookNoopReturn {
     if let Some(cb) = &self.generate_bundle {
-      cb.call_async(Ok((bundle.clone().into(), is_write)))
+      cb.call_async((bundle.clone().into(), is_write))
         .and_then(|generated| async {
           match generated {
             Either::A(p) => {
@@ -410,7 +430,7 @@ impl Plugin for PluginOptions {
     bundle: &Vec<rolldown_common::Output>,
   ) -> rolldown_plugin::HookNoopReturn {
     if let Some(cb) = &self.write_bundle {
-      cb.call_async(Ok(bundle.clone().into()))
+      cb.call_async(bundle.clone().into())
         .and_then(|written| async {
           match written {
             Either::A(p) => {

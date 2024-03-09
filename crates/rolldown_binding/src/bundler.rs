@@ -20,7 +20,7 @@ impl Bundler {
   #[napi(constructor)]
   pub fn new(env: Env, input_opts: InputOptions) -> napi::Result<Self> {
     try_init_custom_trace_subscriber(env);
-    let (opts, plugins) = input_opts.to_rolldown_options(env)?;
+    let (opts, plugins) = input_opts.to_rolldown_options()?;
 
     Ok(Self { inner: Mutex::new(NativeBundler::with_plugins(opts, plugins)) })
   }
