@@ -1,13 +1,13 @@
-use std::{collections::HashMap, fmt::Debug, path::PathBuf};
-
-use crate::{
-  options::plugin::JsAdapterPlugin,
-  utils::{napi_error_ext::NapiErrorExt, JsCallback},
+use std::{
+  collections::HashMap,
+  fmt::Debug,
+  path::{Path, PathBuf},
 };
-use derivative::Derivative;
-use napi::JsFunction;
-use napi_derive::napi;
 
+use derivative::Derivative;
+use napi::{threadsafe_function::ThreadsafeFunction, Env, Error, Status};
+use napi_derive::napi;
+use rolldown_error::BuildError;
 use serde::Deserialize;
 
 use super::plugin::PluginOptions;
@@ -25,8 +25,6 @@ impl From<InputItem> for rolldown::InputItem {
     Self { name: value.name, import: value.import }
   }
 }
-
-pub type ExternalFn = JsCallback<(String, Option<String>, bool), bool>;
 
 #[napi(object)]
 #[derive(Deserialize, Debug, Default)]
@@ -59,7 +57,7 @@ impl From<ResolveOptions> for rolldown_resolver::ResolverOptions {
   }
 }
 
-#[napi(object)]
+#[napi(object, object_to_js = false)]
 #[derive(Deserialize, Default, Derivative)]
 #[serde(rename_all = "camelCase")]
 #[derivative(Debug)]
@@ -78,7 +76,7 @@ pub struct InputOptions {
   #[napi(
     ts_type = "undefined | ((source: string, importer: string | undefined, isResolved: boolean) => boolean)"
   )]
-  pub external: Option<JsFunction>,
+  pub external: Option<ThreadsafeFunction<(String, Option<String>, bool), bool>>,
   pub input: Vec<InputItem>,
   // makeAbsoluteExternalsRelative?: boolean | 'ifRelativeSource';
   // /** @deprecated Use the "manualChunks" output option instead. */
@@ -105,43 +103,41 @@ pub struct InputOptions {
   // pub builtins: BuiltinsOptions,
 }
 
-#[allow(clippy::redundant_closure_for_method_calls)]
-impl From<InputOptions>
-  for (napi::Result<rolldown::InputOptions>, napi::Result<Vec<rolldown_plugin::BoxPlugin>>)
-{
-  fn from(value: InputOptions) -> Self {
-    let cwd = PathBuf::from(value.cwd.clone());
-    assert!(cwd != PathBuf::from("/"), "{value:#?}");
+impl InputOptions {
+  pub(crate) fn to_rolldown_options(
+    mut self,
+    env: Env,
+  ) -> napi::Result<(rolldown::InputOptions, Vec<rolldown_plugin::BoxPlugin>)> {
+    let cwd = Path::new(&self.cwd);
+    if cwd == PathBuf::from("/") {
+      return Err(Error::new(Status::InvalidArg, "cwd cannot be root directory"));
+    }
 
-    let external = if let Some(js_fn) = value.external {
-      match ExternalFn::new(&js_fn) {
-        Err(e) => return (Err(e), Ok(vec![])),
-        Ok(external_fn) => {
-          let cb = Box::new(external_fn);
-          rolldown::External::Fn(Box::new(move |source, importer, is_resolved| {
-            let ts_fn = Box::clone(&cb);
-            Box::pin(async move {
-              ts_fn
-                .call_async((source, importer, is_resolved))
-                .await
-                .map_err(|e| e.into_bundle_error())
-            })
-          }))
-        }
-      }
+    if let Some(external) = self.external.as_mut() {
+      external.unref(&env)?;
+    }
+
+    let external = if let Some(external_fn) = self.external {
+      let cb = Box::new(external_fn);
+      rolldown::External::Fn(Box::new(move |source, importer, is_resolved| {
+        let ts_fn = Box::clone(&cb);
+        Box::pin(async move {
+          ts_fn.call_async(Ok((source, importer, is_resolved))).await.map_err(BuildError::from)
+        })
+      }))
     } else {
       rolldown::External::default()
     };
 
-    (
-      Ok(rolldown::InputOptions {
-        input: value.input.into_iter().map(Into::into).collect::<Vec<_>>(),
-        cwd,
+    Ok((
+      rolldown::InputOptions {
+        input: self.input.into_iter().map(Into::into).collect::<Vec<_>>(),
+        cwd: cwd.to_path_buf(),
         external,
         treeshake: false,
-        resolve: value.resolve.map(Into::into),
-      }),
-      value.plugins.into_iter().map(JsAdapterPlugin::new_boxed).collect::<napi::Result<Vec<_>>>(),
-    )
+        resolve: self.resolve.map(Into::into),
+      },
+      self.plugins.into_iter().map(|p| p.boxed()).collect::<Vec<_>>(),
+    ))
   }
 }

@@ -17,11 +17,11 @@ crate-type = ["cdylib"]
 async-trait        = { workspace = true }
 derivative         = { workspace = true }
 futures            = { workspace = true }
-napi               = { workspace = true, features = ["napi4", "async"] }
+napi               = { workspace = true }
 napi-derive        = { workspace = true }
 rolldown           = { path = "../rolldown" }
 rolldown_common    = { path = "../rolldown_common" }
-rolldown_error     = { path = "../rolldown_error" }
+rolldown_error     = { path = "../rolldown_error", features = ["napi"] }
 rolldown_fs        = { path = "../rolldown_fs" }
 rolldown_plugin    = { path = "../rolldown_plugin" }
 rolldown_resolver  = { path = "../rolldown_resolver" }
