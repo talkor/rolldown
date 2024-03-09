@@ -14,7 +14,7 @@ use napi_derive::napi;
 use rolldown_error::BuildError;
 use serde::Deserialize;
 
-use super::plugin::PluginOptions;
+use super::plugin::{PluginAdapter, PluginOptions};
 
 #[napi(object)]
 #[derive(Deserialize, Debug, Default)]
@@ -150,7 +150,7 @@ impl InputOptions {
         treeshake: false,
         resolve: self.resolve.map(Into::into),
       },
-      self.plugins.into_iter().map(|p| p.boxed()).collect::<Vec<_>>(),
+      self.plugins.into_iter().map(PluginAdapter::new_boxed).collect::<Vec<_>>(),
     ))
   }
 }
