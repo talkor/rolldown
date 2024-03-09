@@ -12,6 +12,8 @@ use crate::{
   types::{binding_outputs::BindingOutputs, binding_rendered_module::BindingRenderedModule},
 };
 
+// Using `Either3<Promise<T>, T, UnknownReturnValue>` in callback functions to handle the
+// unknown return value from JavaScript explicit and avoid unexpected panics.
 #[napi_derive::napi(object, object_to_js = false)]
 #[derive(Deserialize, Default, Derivative)]
 #[serde(rename_all = "camelCase")]
