@@ -820,12 +820,11 @@ dependencies = [
 [[package]]
 name = "napi"
 version = "2.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54a63d0570e4c3e0daf7a8d380563610e159f538e20448d6c911337246f40e84"
+source = "git+https://github.com/napi-rs/napi-rs.git?rev=cf287b99#cf287b99fab68ce2f4e65560a0e912344e50210a"
 dependencies = [
  "bitflags 2.4.2",
  "ctor",
- "napi-derive",
+ "napi-derive 2.16.0 (git+https://github.com/napi-rs/napi-rs.git?rev=cf287b99)",
  "napi-sys",
  "once_cell",
  "tokio",
@@ -845,7 +844,20 @@ checksum = "05bb7c37e3c1dda9312fdbe4a9fc7507fca72288ba154ec093e2d49114e727ce"
 dependencies = [
  "cfg-if",
  "convert_case",
- "napi-derive-backend",
+ "napi-derive-backend 1.0.62 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.52",
+]
+
+[[package]]
+name = "napi-derive"
+version = "2.16.0"
+source = "git+https://github.com/napi-rs/napi-rs.git?rev=cf287b99#cf287b99fab68ce2f4e65560a0e912344e50210a"
+dependencies = [
+ "cfg-if",
+ "convert_case",
+ "napi-derive-backend 1.0.62 (git+https://github.com/napi-rs/napi-rs.git?rev=cf287b99)",
  "proc-macro2",
  "quote",
  "syn 2.0.52",
@@ -867,10 +879,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "napi-derive-backend"
+version = "1.0.62"
+source = "git+https://github.com/napi-rs/napi-rs.git?rev=cf287b99#cf287b99fab68ce2f4e65560a0e912344e50210a"
+dependencies = [
+ "convert_case",
+ "once_cell",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.52",
+]
+
+[[package]]
 name = "napi-sys"
 version = "2.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2503fa6af34dc83fb74888df8b22afe933b58d37daf7d80424b1c60c68196b8b"
+source = "git+https://github.com/napi-rs/napi-rs.git?rev=cf287b99#cf287b99fab68ce2f4e65560a0e912344e50210a"
 dependencies = [
  "libloading",
 ]
@@ -1424,7 +1447,7 @@ dependencies = [
  "mimalloc",
  "napi",
  "napi-build",
- "napi-derive",
+ "napi-derive 2.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rolldown",
  "rolldown_common",
  "rolldown_error",
@@ -1460,6 +1483,7 @@ name = "rolldown_error"
 version = "0.0.1"
 dependencies = [
  "ariadne",
+ "napi",
  "oxc",
  "sugar_path",
  "thiserror",

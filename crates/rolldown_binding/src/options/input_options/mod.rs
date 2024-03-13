@@ -1,17 +1,19 @@
 // cSpell:disable
 use std::{collections::HashMap, fmt::Debug, path::PathBuf};
 
-use crate::{
-  options::plugin::JsAdapterPlugin,
-  utils::{napi_error_ext::NapiErrorExt, JsCallback},
-};
-use derivative::Derivative;
-use napi::JsFunction;
-use napi_derive::napi;
+use std::path::Path;
 
+use derivative::Derivative;
+use napi::{
+  bindgen_prelude::Either,
+  threadsafe_function::{ThreadsafeFunction, UnknownReturnValue},
+  Error, Status,
+};
+use napi_derive::napi;
+use rolldown_error::BuildError;
 use serde::Deserialize;
 
-use super::plugin::PluginOptions;
+use super::plugin::{PluginAdapter, PluginOptions};
 
 #[napi(object)]
 #[derive(Deserialize, Debug, Default)]
@@ -26,8 +28,6 @@ impl From<InputItem> for rolldown::InputItem {
     Self { name: value.name, import: value.import }
   }
 }
-
-pub type ExternalFn = JsCallback<(String, Option<String>, bool), bool>;
 
 #[napi(object)]
 #[derive(Deserialize, Debug, Default)]
@@ -60,7 +60,7 @@ impl From<ResolveOptions> for rolldown_resolver::ResolverOptions {
   }
 }
 
-#[napi(object)]
+#[napi(object, object_to_js = false)]
 #[derive(Deserialize, Default, Derivative)]
 #[serde(rename_all = "camelCase")]
 #[derivative(Debug)]
@@ -79,7 +79,9 @@ pub struct InputOptions {
   #[napi(
     ts_type = "undefined | ((source: string, importer: string | undefined, isResolved: boolean) => boolean)"
   )]
-  pub external: Option<JsFunction>,
+  pub external: Option<
+    ThreadsafeFunction<(String, Option<String>, bool), Either<bool, UnknownReturnValue>, false>,
+  >,
   pub input: Vec<InputItem>,
   // makeAbsoluteExternalsRelative?: boolean | 'ifRelativeSource';
   // /** @deprecated Use the "manualChunks" output option instead. */
@@ -106,43 +108,41 @@ pub struct InputOptions {
   // pub builtins: BuiltinsOptions,
 }
 
-#[allow(clippy::redundant_closure_for_method_calls)]
-impl From<InputOptions>
-  for (napi::Result<rolldown::InputOptions>, napi::Result<Vec<rolldown_plugin::BoxPlugin>>)
-{
-  fn from(value: InputOptions) -> Self {
-    let cwd = PathBuf::from(value.cwd.clone());
-    assert!(cwd != PathBuf::from("/"), "{value:#?}");
+impl InputOptions {
+  pub(crate) fn into_rolldown_options(
+    self,
+  ) -> napi::Result<(rolldown::InputOptions, Vec<rolldown_plugin::BoxPlugin>)> {
+    let cwd = Path::new(&self.cwd);
+    if cwd == PathBuf::from("/") {
+      return Err(Error::new(Status::InvalidArg, "cwd cannot be root directory"));
+    }
 
-    let external = if let Some(js_fn) = value.external {
-      match ExternalFn::new(&js_fn) {
-        Err(e) => return (Err(e), Ok(vec![])),
-        Ok(external_fn) => {
-          let cb = Box::new(external_fn);
-          rolldown::External::Fn(Box::new(move |source, importer, is_resolved| {
-            let ts_fn = Box::clone(&cb);
-            Box::pin(async move {
-              ts_fn
-                .call_async((source, importer, is_resolved))
-                .await
-                .map_err(|e| e.into_bundle_error())
+    let external = if let Some(external_fn) = self.external {
+      rolldown::External::Fn(Box::new(move |source, importer, is_resolved| {
+        let cb = external_fn.clone();
+        Box::pin(async move {
+          cb.call_async((source, importer, is_resolved))
+            .await
+            .map(|v| match v {
+              Either::A(v) => v,
+              Either::B(_) => false,
             })
-          }))
-        }
-      }
+            .map_err(BuildError::from)
+        })
+      }))
     } else {
       rolldown::External::default()
     };
 
-    (
-      Ok(rolldown::InputOptions {
-        input: value.input.into_iter().map(Into::into).collect::<Vec<_>>(),
-        cwd,
+    Ok((
+      rolldown::InputOptions {
+        input: self.input.into_iter().map(Into::into).collect::<Vec<_>>(),
+        cwd: cwd.to_path_buf(),
         external,
         treeshake: true,
-        resolve: value.resolve.map(Into::into),
-      }),
-      value.plugins.into_iter().map(JsAdapterPlugin::new_boxed).collect::<napi::Result<Vec<_>>>(),
-    )
+        resolve: self.resolve.map(Into::into),
+      },
+      self.plugins.into_iter().map(PluginAdapter::new_boxed).collect::<Vec<_>>(),
+    ))
   }
 }
